@@ -32,7 +32,7 @@ WEBSOCKET_LISTEN=":9999" certstream
 ```
 
 ## WebSocket API
-The output is 100% compatible with the CaliDog/Certstream JSON format.
+The output is *mostly* (aka best-effort) compatible with the CaliDog/Certstream JSON format.
 
 ### Connection
 ```bash
