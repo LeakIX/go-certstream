@@ -2,7 +2,6 @@ package certstream
 
 import (
 	"context"
-	"fmt"
 	"math/rand/v2"
 	"net/http"
 	"strings"
@@ -13,10 +12,11 @@ import (
 	ct "github.com/google/certificate-transparency-go"
 	"github.com/google/certificate-transparency-go/client"
 	"github.com/google/certificate-transparency-go/jsonclient"
+	"github.com/google/certificate-transparency-go/loglist3"
 )
 
 type LogWorker struct {
-	logUrl              string
+	ctLog               loglist3.Log
 	broadcaster         *Broadcaster
 	currentIndex        uint64
 	rateLimitCorrection time.Duration
@@ -24,9 +24,9 @@ type LogWorker struct {
 
 const maxRateLimitCorrection = 30 * time.Second
 
-func NewLogWorker(logUrl string, broadcaster *Broadcaster) *LogWorker {
+func NewLogWorker(ctLog loglist3.Log, broadcaster *Broadcaster) *LogWorker {
 	lw := &LogWorker{
-		logUrl:              logUrl,
+		ctLog:               ctLog,
 		broadcaster:         broadcaster,
 		rateLimitCorrection: 0,
 	}
@@ -93,7 +93,7 @@ func (lw *LogWorker) Run(ctx context.Context) error {
 		return nil
 	case <-time.After(time.Duration(1+rand.IntN(10)) * time.Second):
 	}
-	ctClient, err := client.New(lw.logUrl, http.DefaultClient, jsonclient.Options{UserAgent: "leakix/go-certstream"})
+	ctClient, err := client.New(lw.ctLog.URL, http.DefaultClient, jsonclient.Options{UserAgent: "leakix/go-certstream"})
 	if err != nil {
 		return err
 	}
@@ -102,7 +102,7 @@ func (lw *LogWorker) Run(ctx context.Context) error {
 		return err
 	}
 	lw.currentIndex = sth.TreeSize
-	log.Info("connected to ct log", "url", lw.logUrl, "current_index", lw.currentIndex)
+	log.Info("connected to ct log", "url", lw.ctLog.URL, "current_index", lw.currentIndex)
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -128,16 +128,7 @@ func (lw *LogWorker) processEntry(realIndex uint64, entry *ct.LeafEntry) {
 	if cert == nil {
 		return
 	}
-	msg := types.CertStreamMessage{
-		MessageType: "certificate_update",
-	}
-
-	msg.Data.CertIndex = realIndex
-	msg.Data.CertLink = fmt.Sprintf("%s/ct/v1/get-entries?start=%d&end=%d", strings.TrimSuffix(lw.logUrl, "/"), realIndex, realIndex)
-	msg.Data.LeafCert.Subject.CN = cert.Subject.CommonName
-	msg.AddDomain(cert.Subject.CommonName)
-	msg.AddDomains(cert.DNSNames...)
-	msg.Data.Source.URL = lw.logUrl
-	msg.Data.LeafCert.Extensions = types.GetExtensions(cert)
-	lw.broadcaster.Submit(msg)
+	lw.broadcaster.Submit(
+		types.CTX509ToCertStreamMessage(lw.ctLog, realIndex, cert),
+	)
 }
