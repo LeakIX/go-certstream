@@ -2,6 +2,7 @@ package certstream
 
 import (
 	"context"
+	"fmt"
 	"math/rand/v2"
 	"net/http"
 	"strings"
@@ -130,8 +131,13 @@ func (lw *LogWorker) processEntry(realIndex uint64, entry *ct.LeafEntry) {
 	msg := types.CertStreamMessage{
 		MessageType: "certificate_update",
 	}
+
+	msg.Data.CertIndex = realIndex
+	msg.Data.CertLink = fmt.Sprintf("%s/ct/v1/get-entries?start=%d&end=%d", strings.TrimSuffix(lw.logUrl, "/"), realIndex, realIndex)
 	msg.Data.LeafCert.Subject.CN = cert.Subject.CommonName
-	msg.Data.LeafCert.Extensions.SubjectAltName = strings.Join(cert.DNSNames, ", ")
+	msg.AddDomain(cert.Subject.CommonName)
+	msg.AddDomains(cert.DNSNames...)
 	msg.Data.Source.URL = lw.logUrl
+	msg.Data.LeafCert.Extensions = types.GetExtensions(cert)
 	lw.broadcaster.Submit(msg)
 }
